@@ -216,13 +216,12 @@ class _FlappyGameState extends State<FlappyGame> {
 
       if (maxY > minY) {
         final itemY = minY + _rng.nextDouble() * (maxY - minY);
-        final type = (_rng.nextDouble() < 0.3)
+        final type = (_rng.nextDouble() < 0.3 && !_hasBarrier)
             ? ItemType.barrier
             : ItemType.confidence;
-
         _currentItem = GameItem(type: type, y: itemY, xOffset: pipeWidth / 2);
       } else {
-        final type = (_rng.nextDouble() < 0.3)
+        final type = (_rng.nextDouble() < 0.3 && !_hasBarrier)
             ? ItemType.barrier
             : ItemType.confidence;
         _currentItem = GameItem(type: type, y: gapY, xOffset: pipeWidth / 2);
