@@ -22,6 +22,7 @@ class _FlappyGameState extends State<FlappyGame> {
   Timer? _timer;
   bool _running = false;
   bool _gameOver = false;
+  bool _dying = false; // 落下中の状態
   int confidence = 0;
 
   // ゲーム空間の座標 (0..1)
@@ -48,6 +49,8 @@ class _FlappyGameState extends State<FlappyGame> {
 
   // エフェクト用
   double _windOffset = 0.0;
+  List<double> _grassPositions = []; // 草の位置リスト（ピクセル単位）
+  double _screenWidth = 1200.0; // 画面幅（デフォルト値）
 
   // パラメータ
   static const double gravity = 0.001;
@@ -142,6 +145,7 @@ class _FlappyGameState extends State<FlappyGame> {
     setState(() {
       _running = true;
       _gameOver = false;
+      _dying = false;
       score = 0;
       confidence = 0;
       birdY = 0.5;
@@ -155,6 +159,9 @@ class _FlappyGameState extends State<FlappyGame> {
       _pipeCount = 0;
       _nextSpecialTarget = 3 + _rng.nextInt(2); // 3~4
       _currentItem = null;
+
+      // 草の初期配置
+      _initGrass();
 
       _resetGap();
       _scoredThisPipe = false;
@@ -171,12 +178,23 @@ class _FlappyGameState extends State<FlappyGame> {
     setState(() {
       _running = false;
       _gameOver = false;
+      _dying = false;
       score = 0;
       confidence = 0;
       birdY = 0.5;
       birdV = 0.0;
       pipeX = 1.2;
     });
+  }
+
+  void _initGrass() {
+    _grassPositions.clear();
+    double pos = 0;
+    // 画面の2倍の幅まで草を配置
+    while (pos < 2400) {
+      _grassPositions.add(pos);
+      pos += 100 + _rng.nextDouble() * 100; // 100~300pxの間隔
+    }
   }
 
   void _resetGap() {
@@ -215,6 +233,8 @@ class _FlappyGameState extends State<FlappyGame> {
       _start();
       return;
     }
+    // 落下中は入力を無効化
+    if (_dying) return;
     setState(() => birdV = jumpV);
   }
 
@@ -225,10 +245,32 @@ class _FlappyGameState extends State<FlappyGame> {
 
     birdV += gravity * 1;
     birdY += birdV * 1;
+
+    // 落下中は地面到達チェック
+    if (_dying) {
+      if (birdY >= 1.0 - birdRadius) {
+        // 地面に到達したらゲームオーバー
+        _gameOverState();
+        return;
+      }
+      setState(() {});
+      return;
+    }
+
     pipeX -= pipeSpeed * m;
 
     _windOffset -= 0.02 * m;
     if (_windOffset < -1.0) _windOffset += 1.0;
+
+    // 草のスクロール（パイプと同じスピード）
+    final grassSpeed = pipeSpeed * m * _screenWidth;
+    for (int i = 0; i < _grassPositions.length; i++) {
+      _grassPositions[i] -= grassSpeed;
+      // 画面左に消えたら右側に再配置
+      if (_grassPositions[i] < -100) {
+        _grassPositions[i] += 2400;
+      }
+    }
 
     if (pipeX < -pipeWidth) {
       pipeX = 1.2;
@@ -259,10 +301,12 @@ class _FlappyGameState extends State<FlappyGame> {
         } else if (_hasBarrier) {
           _activateInvincibility();
         } else {
-          _gameOverState();
+          // 木にぶつかった - 落下アニメーション開始
+          _startDying();
           return;
         }
       } else {
+        // 壁にぶつかった - 即ゲームオーバー
         _gameOverState();
         return;
       }
@@ -270,10 +314,19 @@ class _FlappyGameState extends State<FlappyGame> {
     setState(() {});
   }
 
+  void _startDying() {
+    setState(() {
+      _dying = true;
+      _hasBarrier = false;
+      _invincibleUntil = null;
+    });
+  }
+
   void _gameOverState() {
     setState(() {
       _gameOver = true;
       _running = false;
+      _dying = false;
       _invincibleUntil = null;
     });
     _updateHighScore();
@@ -340,6 +393,14 @@ class _FlappyGameState extends State<FlappyGame> {
           builder: (context, c) {
             final w = c.maxWidth;
             final h = c.maxHeight;
+            // 画面幅を状態に保存
+            if (_screenWidth != w) {
+              WidgetsBinding.instance.addPostFrameCallback((_) {
+                setState(() {
+                  _screenWidth = w;
+                });
+              });
+            }
             double toPxX(double x) => x * w;
             double toPxY(double y) => y * h;
             final gapTop = gapY - gapSize / 2;
@@ -349,7 +410,10 @@ class _FlappyGameState extends State<FlappyGame> {
             final itemSizePx = base * (itemRadius * 2);
             final boxSize = birdSize * 2.0;
 
-            final birdImage = (confidence > 5)
+            // 鳥の画像を状態に応じて変更
+            final birdImage = (_dying || _gameOver)
+                ? 'assets/eda_lose.png'
+                : (confidence > 5)
                 ? 'assets/eda_fever.png'
                 : 'assets/eda_normal.png';
 
@@ -405,6 +469,19 @@ class _FlappyGameState extends State<FlappyGame> {
                     color: const Color.fromARGB(255, 86, 55, 50),
                   ),
                 ),
+
+                // Grass (decorative, no collision)
+                ..._grassPositions.map((pos) {
+                  return Positioned(
+                    bottom: 20.0, // 土の真上
+                    left: pos,
+                    child: Image.asset(
+                      'assets/grass.png',
+                      height: 30.0,
+                      fit: BoxFit.fitHeight,
+                    ),
+                  );
+                }).toList(),
 
                 // Items
                 if (_currentItem != null && !_currentItem!.collected) ...[
