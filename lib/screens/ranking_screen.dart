@@ -98,7 +98,7 @@ class _RankingScreenState extends State<RankingScreen> {
     try {
       final response = await Supabase.instance.client
           .from('ranking')
-          .select('user_name, score')
+          .select('user_name, score, confidence')
           .order('score', ascending: false)
           .limit(30);
 
@@ -119,12 +119,20 @@ class _RankingScreenState extends State<RankingScreen> {
     final isRegistered = (_userId != null && _userName != null);
 
     return Scaffold(
-      backgroundColor: const Color(0xFF4C3D32), // 地面っぽい色か、落ち着いた色
+      backgroundColor: const Color(0xFF2C3E50), // 落ち着いたダークブルー
       appBar: AppBar(
-        title: const Text('RANKING'),
+        title: const Text(
+          'RANKING',
+          style: TextStyle(
+            color: Colors.white,
+            fontWeight: FontWeight.bold,
+            letterSpacing: 2.0,
+          ),
+        ),
         backgroundColor: Colors.transparent,
         elevation: 0,
         centerTitle: true,
+        iconTheme: const IconThemeData(color: Colors.white),
       ),
       body: SafeArea(
         child: _isLoading
@@ -204,7 +212,7 @@ class _RankingScreenState extends State<RankingScreen> {
       );
     }
     return ListView.builder(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
       itemCount: _rankingData.length,
       itemBuilder: (context, index) {
         final item = _rankingData[index];
@@ -214,46 +222,92 @@ class _RankingScreenState extends State<RankingScreen> {
 
         return Container(
           margin: const EdgeInsets.only(bottom: 12),
-          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
           decoration: BoxDecoration(
-            color: isMe
-                ? Colors.yellow.withOpacity(0.2)
-                : Colors.white.withOpacity(0.1),
-            borderRadius: BorderRadius.circular(16),
-            border: isMe ? Border.all(color: Colors.yellow, width: 2) : null,
+            color: isMe ? const Color(0xFFFFF9C4) : Colors.white,
+            borderRadius: BorderRadius.circular(12),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.1),
+                blurRadius: 4,
+                offset: const Offset(0, 2),
+              ),
+            ],
+            border: isMe
+                ? Border.all(color: Colors.orangeAccent, width: 2)
+                : null,
           ),
           child: Row(
             children: [
-              Text(
-                '${index + 1}',
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 24,
-                  fontWeight: FontWeight.bold,
-                  fontFamily: 'Courier',
+              // Rank Badge
+              Container(
+                width: 40,
+                height: 40,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: index < 3
+                      ? const Color(0xFFFFD700) // Gold for top 3
+                      : Colors.grey.withOpacity(0.2),
+                ),
+                child: Text(
+                  '${index + 1}',
+                  style: TextStyle(
+                    color: index < 3 ? Colors.black87 : Colors.black54,
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                  ),
                 ),
               ),
-              const SizedBox(width: 20),
+              const SizedBox(width: 16),
+              // Name
               Expanded(
                 child: Text(
                   name,
                   style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 20,
-                    fontWeight: FontWeight.bold,
+                    color: Colors.black87,
+                    fontSize: 18,
+                    fontWeight: FontWeight.w600,
                   ),
                   overflow: TextOverflow.ellipsis,
                 ),
               ),
+              // Score
               Text(
                 '$score',
-                style: TextStyle(
-                  color: isMe ? Colors.yellowAccent : Colors.lightBlueAccent,
-                  fontSize: 24,
+                style: const TextStyle(
+                  color: Color(0xFF2C3E50),
+                  fontSize: 22,
                   fontWeight: FontWeight.bold,
                   fontFamily: 'Courier',
                 ),
               ),
+              const SizedBox(width: 8),
+              // Confidence Badge
+              if (item['confidence'] != null && item['confidence'] > 0)
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 6,
+                    vertical: 2,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Colors.orangeAccent,
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.flash_on, size: 10, color: Colors.white),
+                      Text(
+                        '${item['confidence']}',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 10,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
             ],
           ),
         );

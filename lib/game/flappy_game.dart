@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:flutter/services.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../models/game_item.dart';
@@ -63,6 +64,7 @@ class _FlappyGameState extends State<FlappyGame> {
   static const int tickMs = 16;
 
   final _rng = Random();
+  final FocusNode _focusNode = FocusNode();
 
   double get _speedMultiplier {
     double val = 1.0;
@@ -111,6 +113,7 @@ class _FlappyGameState extends State<FlappyGame> {
         'id': int.tryParse(userId!) ?? 0, // DBのint8に合わせて数値型で送る
         'user_name': userName,
         'score': highScore,
+        'confidence': confidence, // 現在のconfidenceを送る
         'lastedit_at': DateTime.now().toIso8601String(),
       });
     } catch (e) {
@@ -136,6 +139,7 @@ class _FlappyGameState extends State<FlappyGame> {
 
   @override
   void dispose() {
+    _focusNode.dispose();
     _timer?.cancel();
     super.dispose();
   }
@@ -384,248 +388,264 @@ class _FlappyGameState extends State<FlappyGame> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTapDown: (_) {
-          if (_running) _tap();
+      body: KeyboardListener(
+        focusNode: _focusNode,
+        autofocus: true,
+        onKeyEvent: (event) {
+          if (event is KeyDownEvent &&
+              event.logicalKey == LogicalKeyboardKey.space) {
+            _tap();
+          }
         },
-        child: LayoutBuilder(
-          builder: (context, c) {
-            final w = c.maxWidth;
-            final h = c.maxHeight;
-            // 画面幅を状態に保存
-            if (_screenWidth != w) {
-              WidgetsBinding.instance.addPostFrameCallback((_) {
-                setState(() {
-                  _screenWidth = w;
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTapDown: (_) {
+            if (_running) _tap();
+          },
+          child: LayoutBuilder(
+            builder: (context, c) {
+              final w = c.maxWidth;
+              final h = c.maxHeight;
+              // 画面幅を状態に保存
+              if (_screenWidth != w) {
+                WidgetsBinding.instance.addPostFrameCallback((_) {
+                  setState(() {
+                    _screenWidth = w;
+                  });
                 });
-              });
-            }
-            double toPxX(double x) => x * w;
-            double toPxY(double y) => y * h;
-            final gapTop = gapY - gapSize / 2;
-            final gapBottom = gapY + gapSize / 2;
-            final base = min(w, h);
-            final birdSize = base * (birdRadius * 2);
-            final itemSizePx = base * (itemRadius * 2);
-            final boxSize = birdSize * 2.0;
+              }
+              double toPxX(double x) => x * w;
+              double toPxY(double y) => y * h;
+              final gapTop = gapY - gapSize / 2;
+              final gapBottom = gapY + gapSize / 2;
+              final base = min(w, h);
+              final birdSize = base * (birdRadius * 2);
+              final itemSizePx = base * (itemRadius * 2);
+              final boxSize = birdSize * 2.0;
 
-            // 鳥の画像を状態に応じて変更
-            final birdImage = (_dying || _gameOver)
-                ? 'assets/eda_lose.png'
-                : (confidence > 5)
-                ? 'assets/eda_fever.png'
-                : 'assets/eda_normal.png';
+              // 鳥の画像を状態に応じて変更
+              final birdImage = (_dying || _gameOver)
+                  ? 'assets/eda_lose.png'
+                  : (confidence > 5)
+                  ? 'assets/eda_fever.png'
+                  : 'assets/eda_normal.png';
 
-            final double windIntensity = (confidence / 5.0).clamp(0.0, 1.0);
+              final double windIntensity = (confidence / 5.0).clamp(0.0, 1.0);
 
-            return Stack(
-              children: [
-                // Sky
-                Container(color: const Color(0xFF8ED6FF)),
+              return Stack(
+                children: [
+                  // Sky
+                  Container(color: const Color(0xFF8ED6FF)),
 
-                // Wind
-                if (windIntensity > 0)
-                  Positioned.fill(
-                    child: CustomPaint(
-                      painter: WindPainter(
-                        factor: windIntensity,
-                        scroll: _windOffset,
+                  // Wind
+                  if (windIntensity > 0)
+                    Positioned.fill(
+                      child: CustomPaint(
+                        painter: WindPainter(
+                          factor: windIntensity,
+                          scroll: _windOffset,
+                        ),
                       ),
                     ),
-                  ),
 
-                // Upper Pipe
-                Positioned(
-                  left: toPxX(pipeX),
-                  top: 0,
-                  width: toPxX(pipeWidth),
-                  height: toPxY(gapTop),
-                  child: TreeTrunk(
+                  // Upper Pipe
+                  Positioned(
+                    left: toPxX(pipeX),
+                    top: 0,
                     width: toPxX(pipeWidth),
                     height: toPxY(gapTop),
+                    child: TreeTrunk(
+                      width: toPxX(pipeWidth),
+                      height: toPxY(gapTop),
+                    ),
                   ),
-                ),
 
-                // Lower Pipe
-                Positioned(
-                  left: toPxX(pipeX),
-                  top: toPxY(gapBottom),
-                  width: toPxX(pipeWidth),
-                  height: toPxY(1 - gapBottom),
-                  child: TreeTrunk(
+                  // Lower Pipe
+                  Positioned(
+                    left: toPxX(pipeX),
+                    top: toPxY(gapBottom),
                     width: toPxX(pipeWidth),
                     height: toPxY(1 - gapBottom),
-                  ),
-                ),
-
-                // Ground
-                Positioned(
-                  bottom: 0,
-                  left: 0,
-                  right: 0,
-                  height: 20.0,
-                  child: Container(
-                    color: const Color.fromARGB(255, 86, 55, 50),
-                  ),
-                ),
-
-                // Grass (decorative, no collision)
-                ..._grassPositions.map((pos) {
-                  return Positioned(
-                    bottom: 20.0, // 土の真上
-                    left: pos,
-                    child: Image.asset(
-                      'assets/grass.png',
-                      height: 30.0,
-                      fit: BoxFit.fitHeight,
+                    child: TreeTrunk(
+                      width: toPxX(pipeWidth),
+                      height: toPxY(1 - gapBottom),
                     ),
-                  );
-                }).toList(),
+                  ),
 
-                // Items
-                if (_currentItem != null && !_currentItem!.collected) ...[
-                  Builder(
-                    builder: (context) {
-                      final isConfidence =
-                          _currentItem!.type == ItemType.confidence;
-                      final color = isConfidence
-                          ? Colors.yellow
-                          : Colors.cyanAccent;
-                      final shadow = isConfidence ? Colors.orange : Colors.blue;
-                      final icon = isConfidence ? Icons.flash_on : Icons.shield;
+                  // Ground
+                  Positioned(
+                    bottom: 0,
+                    left: 0,
+                    right: 0,
+                    height: 20.0,
+                    child: Container(
+                      color: const Color.fromARGB(255, 86, 55, 50),
+                    ),
+                  ),
 
-                      return Positioned(
-                        left:
-                            toPxX(pipeX + _currentItem!.xOffset) -
-                            itemSizePx / 2,
-                        top: toPxY(_currentItem!.y) - itemSizePx / 2,
-                        width: itemSizePx,
-                        height: itemSizePx,
-                        child: Container(
-                          decoration: BoxDecoration(
-                            color: color,
-                            shape: BoxShape.circle,
-                            boxShadow: [
-                              BoxShadow(
-                                color: shadow,
-                                blurRadius: 4,
-                                spreadRadius: 1,
+                  // Grass (decorative, no collision)
+                  ..._grassPositions.map((pos) {
+                    return Positioned(
+                      bottom: 20.0, // 土の真上
+                      left: pos,
+                      child: Image.asset(
+                        'assets/grass.png',
+                        height: 30.0,
+                        fit: BoxFit.fitHeight,
+                      ),
+                    );
+                  }).toList(),
+
+                  // Items
+                  if (_currentItem != null && !_currentItem!.collected) ...[
+                    Builder(
+                      builder: (context) {
+                        final isConfidence =
+                            _currentItem!.type == ItemType.confidence;
+                        final color = isConfidence
+                            ? Colors.yellow
+                            : Colors.cyanAccent;
+                        final shadow = isConfidence
+                            ? Colors.orange
+                            : Colors.blue;
+                        final icon = isConfidence
+                            ? Icons.flash_on
+                            : Icons.shield;
+
+                        return Positioned(
+                          left:
+                              toPxX(pipeX + _currentItem!.xOffset) -
+                              itemSizePx / 2,
+                          top: toPxY(_currentItem!.y) - itemSizePx / 2,
+                          width: itemSizePx,
+                          height: itemSizePx,
+                          child: Container(
+                            decoration: BoxDecoration(
+                              color: color,
+                              shape: BoxShape.circle,
+                              boxShadow: [
+                                BoxShadow(
+                                  color: shadow,
+                                  blurRadius: 4,
+                                  spreadRadius: 1,
+                                ),
+                              ],
+                            ),
+                            child: Center(
+                              child: Icon(
+                                icon,
+                                size: 16,
+                                color: Colors.blueGrey[900],
                               ),
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                  ],
+
+                  // Bird
+                  Positioned(
+                    left: toPxX(0.3) - boxSize / 2,
+                    top: toPxY(birdY) - boxSize / 2,
+                    width: boxSize,
+                    height: boxSize,
+                    child: Center(
+                      child: Transform.rotate(
+                        angle: _birdAngle(),
+                        child: Transform.scale(
+                          scaleX: -1,
+                          child: Image.asset(birdImage),
+                        ),
+                      ),
+                    ),
+                  ),
+
+                  // Barrier
+                  if (_hasBarrier)
+                    Positioned(
+                      left: toPxX(0.3) + birdSize * 0.2,
+                      top: toPxY(birdY) - birdSize * 0.6,
+                      width: birdSize * 1.2,
+                      height: birdSize * 1.2,
+                      child: Image.asset('assets/barrier.png'),
+                    ),
+
+                  // Invincible Effect
+                  if (_isInvincible)
+                    Positioned(
+                      left: toPxX(0.3) - birdSize,
+                      top: toPxY(birdY) - birdSize,
+                      width: birdSize * 2,
+                      height: birdSize * 2,
+                      child: Container(
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          border: Border.all(
+                            color: Colors.white.withOpacity(0.5),
+                            width: 2,
+                          ),
+                        ),
+                      ),
+                    ),
+
+                  // Info
+                  Positioned(
+                    top: 48,
+                    left: 0,
+                    right: 0,
+                    child: Column(
+                      children: [
+                        Text(
+                          '$score',
+                          style: const TextStyle(
+                            fontSize: 48,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.white,
+                            shadows: [
+                              Shadow(blurRadius: 6, color: Colors.black45),
                             ],
                           ),
-                          child: Center(
-                            child: Icon(
-                              icon,
-                              size: 16,
-                              color: Colors.blueGrey[900],
-                            ),
+                        ),
+                        Text(
+                          'Confidence: $confidence',
+                          style: const TextStyle(
+                            fontSize: 20,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.yellowAccent,
+                            shadows: [
+                              Shadow(blurRadius: 4, color: Colors.black),
+                            ],
                           ),
                         ),
-                      );
-                    },
+                      ],
+                    ),
                   ),
+
+                  // Overlay Screens
+                  if (!_running)
+                    Positioned.fill(
+                      child: Container(
+                        color: Colors.black54,
+                        child: _gameOver
+                            ? ResultScreen(
+                                score: score,
+                                highScore: highScore,
+                                confidence: confidence,
+                                onRetry: _start,
+                                onHome: _goHome,
+                              )
+                            : StartScreen(
+                                highScore: highScore,
+                                onStart: _start,
+                                onRanking: _openRankingScreen,
+                              ),
+                      ),
+                    ),
                 ],
-
-                // Bird
-                Positioned(
-                  left: toPxX(0.3) - boxSize / 2,
-                  top: toPxY(birdY) - boxSize / 2,
-                  width: boxSize,
-                  height: boxSize,
-                  child: Center(
-                    child: Transform.rotate(
-                      angle: _birdAngle(),
-                      child: Transform.scale(
-                        scaleX: -1,
-                        child: Image.asset(birdImage),
-                      ),
-                    ),
-                  ),
-                ),
-
-                // Barrier
-                if (_hasBarrier)
-                  Positioned(
-                    left: toPxX(0.3) + birdSize * 0.2,
-                    top: toPxY(birdY) - birdSize * 0.6,
-                    width: birdSize * 1.2,
-                    height: birdSize * 1.2,
-                    child: Image.asset('assets/barrier.png'),
-                  ),
-
-                // Invincible Effect
-                if (_isInvincible)
-                  Positioned(
-                    left: toPxX(0.3) - birdSize,
-                    top: toPxY(birdY) - birdSize,
-                    width: birdSize * 2,
-                    height: birdSize * 2,
-                    child: Container(
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        border: Border.all(
-                          color: Colors.white.withOpacity(0.5),
-                          width: 2,
-                        ),
-                      ),
-                    ),
-                  ),
-
-                // Info
-                Positioned(
-                  top: 48,
-                  left: 0,
-                  right: 0,
-                  child: Column(
-                    children: [
-                      Text(
-                        '$score',
-                        style: const TextStyle(
-                          fontSize: 48,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.white,
-                          shadows: [
-                            Shadow(blurRadius: 6, color: Colors.black45),
-                          ],
-                        ),
-                      ),
-                      Text(
-                        'Confidence: $confidence',
-                        style: const TextStyle(
-                          fontSize: 20,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.yellowAccent,
-                          shadows: [Shadow(blurRadius: 4, color: Colors.black)],
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-
-                // Overlay Screens
-                if (!_running)
-                  Positioned.fill(
-                    child: Container(
-                      color: Colors.black54,
-                      child: _gameOver
-                          ? ResultScreen(
-                              score: score,
-                              highScore: highScore,
-                              confidence: confidence,
-                              onRetry: _start,
-                              onHome: _goHome,
-                            )
-                          : StartScreen(
-                              highScore: highScore,
-                              onStart: _start,
-                              onRanking: _openRankingScreen,
-                            ),
-                    ),
-                  ),
-              ],
-            );
-          },
+              );
+            },
+          ),
         ),
       ),
     );
